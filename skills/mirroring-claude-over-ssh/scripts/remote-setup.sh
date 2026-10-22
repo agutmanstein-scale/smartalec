@@ -23,6 +23,25 @@ fi
 
 command -v claude >/dev/null || curl -fsSL https://claude.ai/install.sh | bash >/dev/null
 
+# gh and its stack extension. `gh extension install` needs a login the box doesn't have yet, so the release
+# binaries go where gh looks for them. Neither needs sudo.
+latest() { curl -fsSLI --retry 3 -o /dev/null -w '%{url_effective}' "https://github.com/$1/releases/latest" | sed 's|.*/||'; }
+case $(uname -m) in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
+if ! command -v gh >/dev/null; then
+  v=$(latest cli/cli); v=${v#v}
+  d=$(mktemp -d)
+  curl -fsSL --retry 3 "https://github.com/cli/cli/releases/download/v$v/gh_${v}_linux_$arch.tar.gz" | tar xz -C "$d"
+  install -m 755 "$d/gh_${v}_linux_$arch/bin/gh" ~/.local/bin/gh
+fi
+ext=${XDG_DATA_HOME:-$HOME/.local/share}/gh/extensions/gh-stack
+if [ ! -x "$ext/gh-stack" ]; then
+  tag=$(latest github/gh-stack)
+  mkdir -p "$ext"
+  curl -fsSL --retry 3 -o "$ext/gh-stack" "https://github.com/github/gh-stack/releases/download/$tag/linux-$arch"
+  chmod 755 "$ext/gh-stack"
+  printf 'owner: github\nname: gh-stack\nhost: github.com\ntag: %s\nispinned: false\npath: %s\n' "$tag" "$ext/gh-stack" > "$ext/manifest.yml"
+fi
+
 tar xzf "$B/claude.tgz" -C ~/.claude
 [ -f "$B/AGENTS.md" ] && cp "$B/AGENTS.md" ~/AGENTS.md
 
@@ -54,6 +73,10 @@ json.dump({**box, **mac, "enabledPlugins": enabled}, open(p, "w"), indent=2)
 EOF
 
 echo "rtk $(command -v rtk >/dev/null && rtk --version | cut -d' ' -f2 || echo 'not needed'), $(claude --version)"
+gv=$(git --version 2>/dev/null | awk '{print $3}')
+if [ -n "$gv" ] && [ "$(printf '%s\n2.36\n' "$gv" | sort -V | head -1)" = 2.36 ]; then gs="$(GH_STACK_NO_UPDATE_NOTIFIER=1 gh stack --version 2>&1 | head -1) (git $gv)"
+else gs="gh stack installed but git is ${gv:-missing}, it needs 2.36+ (user step)"; fi
+echo "$gs"
 echo "skills: $(ls ~/.claude/skills | grep -vc '\.zip$'), plugins enabled: $(claude plugin list 2>/dev/null | grep -ci enabled)"
 gh auth status >/dev/null 2>&1 && echo "gh: logged in" || echo "gh: NOT logged in (user step)"
 rm -rf "$B"

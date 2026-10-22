@@ -15,10 +15,12 @@ bash ~/.claude/skills/mirroring-claude-over-ssh/scripts/mirror-claude.sh <ssh-ho
 ```
 
 It checks the host first and stops with what's missing. The host needs Linux on x86_64 or aarch64, `bash`, `curl`,
-`tar` and `python3`, and key-based ssh (it runs with `BatchMode`); `gh` is only needed for the GitHub login. No sudo.
+`tar` and `python3`, and key-based ssh (it runs with `BatchMode`); `git` 2.36 or newer is needed for `gh stack` and
+it prints a note if `git` is missing. No sudo.
 
 Then it installs Claude Code, plus the Linux `rtk` into `~/.local/bin` when the settings have an `rtk hook` (a hook
-that runs on every Bash call breaks every Bash call without it). It copies CLAUDE.md, RTK.md, AGENTS.md,
+that runs on every Bash call breaks every Bash call without it). It also puts `gh` (if the host has none) and the
+`gh stack` extension into `~/.local`, so stacked PRs work as soon as you've logged in to `gh`. It copies CLAUDE.md, RTK.md, AGENTS.md,
 settings.local.json and skills (whichever exist), merges settings.json (the Mac's keys win, the host's stay, a
 `.pre-mirror` backup is kept), copies every marketplace except `claude-plugins-official` from its local checkout (so
 private ones need no GitHub auth on the host) and installs every plugin. A marketplace registers on the host under

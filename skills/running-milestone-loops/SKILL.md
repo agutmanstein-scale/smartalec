@@ -57,9 +57,9 @@ If the action isn't listed as allowed:
 - don't route around a slow reviewer or an absent user through someone else.
 
 ## Stack shape
-- **Units that share files go in one linear stack**, each PR based on the branch below it. Siblings off main that share files conflict on every merge.
+- **Units that share files go in one linear stack** managed with `gh stack`, each PR based on the branch below it. Siblings off main that share files conflict on every merge.
 - **Independent units** branch from a freshly fetched main.
-- **Restacking:** record every layer's tip in PRS.md first, then rebase each layer `--onto` its parent's new tip from its recorded old base. Push with `--force-with-lease`. See `reference.md` § Stacking.
+- **Restacking:** `gh stack rebase` cascades from the bottom and `gh stack push` pushes every layer with a lease. See `reference.md` § Stacking.
 
 ## Keep going
 - End a turn only while a background workflow is running; it re-invokes you when it finishes. Also schedule a 20–30 minute fallback wakeup.

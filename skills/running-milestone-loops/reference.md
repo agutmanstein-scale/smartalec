@@ -22,15 +22,18 @@
 - **On a hand-off,** the old owner writes `released` to OWNER before the new one starts.
 
 ## Stacking
+Needs `gh` with the `gh-stack` extension (`gh extension install github/gh-stack`) and git 2.36 or newer.
 - **Choosing the shape.** List the files each queued unit touches. Units that overlap go in one linear stack, in queue order. The rest branch from a freshly fetched main. Always fetch first and branch from `origin/<main>`, never from a local main.
+- **Building the stack.** `gh stack init --base <main> <unit-branch>...` adopts existing branches or creates them. `gh stack add <branch>` adds the next layer on top and must run from the top layer. `gh stack submit --auto` pushes every layer, opens a draft PR per layer with the right base, and links them as a stack on GitHub. Add `--open` to mark them ready. Record each PR in PRS.md.
 - **Restack after a lower layer changes:**
-  1. Record every layer's current tip in PRS.md.
-  2. For each layer from the bottom up, run `git -C <wt> rebase --onto <parent-branch> <recorded old parent tip>`.
-  3. Stop at the first conflict and give that layer to one agent to resolve. It keeps both sides' intent, reruns the gates, and gives a stated reason for any re-pin.
-  4. Run the gates on the top layer, and on every layer whose parent touched its code.
-  5. Run `git push --force-with-lease` for each layer. PR bases are branch names, so they stay correct.
+  1. Record every layer's current tip in PRS.md, the rollback point once layers are pushed.
+  2. Commit or stash in every worktree that owns a layer. `gh stack` updates clean worktrees and stops at a dirty one. Keep those worktrees idle while it runs.
+  3. Run `gh stack rebase`, or `gh stack sync` to fetch, rebase, push and prune in one step. A layer whose PR has merged is replayed `--onto` its new base automatically.
+  4. On the first conflict it pauses. Give that layer to one agent to resolve. It keeps both sides' intent, stages the files, runs `gh stack rebase --continue`, reruns the gates, and gives a stated reason for any re-pin. `gh stack rebase --abort` restores every layer to its pre-rebase state.
+  5. Run the gates on the top layer, and on every layer whose parent touched its code.
+  6. Run `gh stack push`. It is not atomic: if one layer's lease is rejected, fix it and rerun, since the other layers are already updated. PR bases follow the stack, so they stay correct.
 - **Generated fixtures, goldens and snapshots.** Never hand-merge them. Regenerate them at the conflicting commit. Then check every moved value against what the unit declares (in DESIGN.md or a divergence ledger). An unexplained move is a bug until shown otherwise.
-- **Merge train,** when the Authority table allows merges: once the bottom PR is approved and every check is done, including non-required security scans, squash-merge it. The next PR auto-retargets to main. Rebase it `--onto origin/main <old parent tip>`, force-push it, wait for its checks, and repeat. Log every merge in PRS.md.
+- **Merge train,** when the Authority table allows merges: once the bottom PR is approved and every check is done, including non-required security scans, `gh stack merge <pr-number> --squash --yes` merges every PR up to that one in a single all-or-nothing step. It cannot bypass branch protection, and a merge queue picks the method itself. If the repo's rules refuse it, merge the bottom PR alone, run `gh stack rebase`, wait for its checks, and repeat. Log every merge in PRS.md.
 
 ## Bot review loop (Greptile, CodeRabbit, …)
 1. A fixing agent checks each thread against the code. A valid thread gets a fix plus a test that fails before and passes after. A deferred thread names an owner. An invalid thread is answered with file:line evidence.
@@ -41,7 +44,7 @@
 ## Hand-off to another machine
 - **Bundle:** the loop dir, the design docs, any local-only data, and a `setup.sh`. Write laptop paths as placeholders that `setup.sh` fills in.
 - **`setup.sh`:**
-  - checks the prerequisites (git and tracker auth, toolchains);
+  - checks the prerequisites (git and tracker auth, `gh stack`, toolchains);
   - creates the worktrees from the pushed branches;
   - builds the environments.
 - **Verify the new machine** by running the gates on one unit and comparing against the old machine's counts, including known-failing ones. Different counts mean an environment gap, not a code change.

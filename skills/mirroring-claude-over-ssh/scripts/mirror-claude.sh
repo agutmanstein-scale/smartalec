@@ -10,7 +10,7 @@ quiet() { grep -v -e 'Ephemeral SSH key' -e 'Pushing SSH public key' || true; }
 check=$(ssh -o BatchMode=yes -o ConnectTimeout=20 "$host" 'm=""; [ "$(uname -s)" = Linux ] || m="$m os=$(uname -s)"
   case $(uname -m) in x86_64|aarch64) ;; *) m="$m arch=$(uname -m)" ;; esac
   for c in bash curl tar python3; do command -v $c >/dev/null || m="$m $c"; done
-  command -v gh >/dev/null || echo "NOTE: no gh on the host; the GitHub login step needs it"
+  command -v git >/dev/null || echo "NOTE: no git on the host; gh stack needs git 2.36+"
   echo "MISSING:$m"' 2>&1 | quiet) || true
 if ! grep -q '^MISSING:' <<<"$check"; then
   echo "can't reach $host with key-based ssh (BatchMode): $check" >&2; exit 1
