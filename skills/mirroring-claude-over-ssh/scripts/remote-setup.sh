@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Runs on the devbox from /tmp/claude-mirror (uploaded by mirror-claude.sh). Safe to re-run.
+# Runs on the devbox from the private directory mirror-claude.sh uploaded to (its path is $1). Safe to re-run.
 set -euo pipefail
-B=/tmp/claude-mirror
+B=${1:?usage: remote-setup.sh <upload dir>}
 export PATH=$HOME/.local/bin:$PATH
 mkdir -p ~/.local/bin ~/.claude ~/plugin-marketplaces
 
@@ -49,7 +49,8 @@ for t in "$B"/marketplaces/*.tgz; do
   [ -e "$t" ] || continue
   key=$(basename "$t" .tgz)
   rm -rf ~/plugin-marketplaces/"$key"
-  tar xzf "$t" -C ~/plugin-marketplaces
+  mkdir -p ~/plugin-marketplaces/"$key"
+  tar xzf "$t" -C ~/plugin-marketplaces/"$key" --strip-components=1
   claude plugin marketplace add ~/plugin-marketplaces/"$key" < /dev/null | tail -1
 done
 
@@ -58,22 +59,11 @@ while read -r pid; do
 done < "$B/plugins.txt"
 
 # Mac settings win, the box's own keys (e.g. theme) stay, plugin ids follow the marketplace renames.
-python3 - "$B/settings.mac.json" "$B/renames.json" <<'EOF'
-import json, os, shutil, sys
-p = os.path.expanduser("~/.claude/settings.json")
-box = json.load(open(p)) if os.path.exists(p) else {}
-if os.path.exists(p) and not os.path.exists(p + ".pre-mirror"):
-    shutil.copy(p, p + ".pre-mirror")
-mac, renames = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
-def rename(pid):
-    name, _, market = pid.rpartition("@")
-    return f"{name}@{renames.get(market, market)}" if name else pid
-enabled = {**box.get("enabledPlugins", {}), **{rename(k): v for k, v in mac.get("enabledPlugins", {}).items()}}
-json.dump({**box, **mac, "enabledPlugins": enabled}, open(p, "w"), indent=2)
-EOF
+python3 "$B/merge_settings.py" "$B/settings.mac.json" "$B/renames.json" ~/.claude/settings.json
+[ -f "$B/settings.local.json" ] && cp "$B/settings.local.json" ~/.claude/settings.local.json
 
 echo "rtk $(command -v rtk >/dev/null && rtk --version | cut -d' ' -f2 || echo 'not needed'), $(claude --version)"
-gv=$(git --version 2>/dev/null | awk '{print $3}')
+gv=$(git --version 2>/dev/null | awk '{print $3}') || gv=
 if [ -n "$gv" ] && [ "$(printf '%s\n2.36\n' "$gv" | sort -V | head -1)" = 2.36 ]; then gs="$(GH_STACK_NO_UPDATE_NOTIFIER=1 gh stack --version 2>&1 | head -1) (git $gv)"
 else gs="gh stack installed but git is ${gv:-missing}, it needs 2.36+ (user step)"; fi
 echo "$gs"

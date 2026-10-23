@@ -94,6 +94,7 @@ You fix this unit. For every finding, reproduce it first:
 - confirmed: fix it, with a test that fails before the fix and passes after;
 - not reproducible or wrong: decline it, giving file:line evidence;
 - real but outside the tickets' scope: put it in questions, and don't widen the PR.
+Every done-when row a reviewer scored NOT_MET or UNPROVEN must end MET with evidence you ran, or be listed in left_undone with the reason.
 Then rerun the unit's gates, commit, and update DESIGN.md, listing what you declined. Budget: about 20 minutes beyond the gates.
 Implementer report: ${JSON.stringify(impl)}
 Reviews: ${JSON.stringify(reviews)}
@@ -104,23 +105,34 @@ Write the PR description from the final diff (git -C ${u.worktree} diff ${u.base
 Write it to ${LOOP}/units/${u.key}/PR-BODY.md, with first line "TITLE: <imperative, under 72 chars>", and also return it as your final text.
 Final state: ${JSON.stringify(fin)}`
 
-const review = (u, impl, lenses, phase) => parallel(lenses.map(l => () =>
-  agent(reviewPrompt(u, impl, l), { label: `${phase === 'Review' ? 'review' : 're-review'}-${l}:${u.key}`, phase, schema: REVIEW })))
-  .then(rs => rs.filter(Boolean))
+const runLenses = (u, impl, lenses, phase) => parallel(lenses.map(l => () =>
+  agent(reviewPrompt(u, impl, l), { label: `${phase === 'Review' ? 'review' : 're-review'}-${l}:${u.key}`, phase, schema: REVIEW })
+    .then(x => x && { ...x, lens: l })))
 
-const actionable = reviews => reviews.some(x => (x.findings || []).length || (x.done_when || []).some(d => d.status === 'NOT_MET'))
+// Every requested lens must come back. A lens that returned nothing is retried once; one that still has nothing is
+// reported in `missing` so the caller stops instead of reading silence as approval.
+const review = async (u, impl, lenses, phase) => {
+  const got = (await runLenses(u, impl, lenses, phase)).filter(Boolean)
+  const retry = lenses.filter(l => !got.some(x => x.lens === l))
+  if (retry.length) got.push(...(await runLenses(u, impl, retry, phase)).filter(Boolean))
+  return { reviews: got, missing: lenses.filter(l => !got.some(x => x.lens === l)) }
+}
+
+const unproven = rows => (rows || []).filter(d => d.status !== 'MET')
+const actionable = reviews => reviews.some(x => (x.findings || []).length || unproven(x.done_when).length)
 
 const results = await pipeline(
   UNITS,
   u => u.implemented ? existingReport(u) : agent(implPrompt(u), { label: `impl:${u.key}`, phase: 'Implement', schema: IMPL }),
   (impl, u) => impl && impl.status !== 'blocked'
-    ? review(u, impl, ['conformance', 'breaker', 'tests'], 'Review').then(reviews => ({ impl, reviews }))
+    ? review(u, impl, ['conformance', 'breaker', 'tests'], 'Review').then(({ reviews, missing }) => ({ impl, reviews, missing }))
     : { impl, reviews: [], skipped: true },
   (r, u) => {
     if (r.skipped) return r
+    if (r.missing.length) return { ...r, review_incomplete: true, needs_attention: true }
     if (!actionable(r.reviews)) {
       const scored = r.reviews.find(x => (x.done_when || []).length)
-      return { ...r, fin: { ...r.impl, done_when: (r.impl.done_when || []).length ? r.impl.done_when : (scored ? scored.done_when : []) }, fix_skipped: true }
+      return { ...r, fin: { ...r.impl, done_when: (scored ? scored.done_when : r.impl.done_when) || [] }, fix_skipped: true }
     }
     return agent(fixPrompt(u, r.impl, r.reviews), { label: `fix:${u.key}`, phase: 'Fix', schema: IMPL }).then(fin => ({ ...r, fin }))
   },
@@ -128,11 +140,12 @@ const results = await pipeline(
     if (r.skipped || !r.fin) return r
     const serious = (r.fin.fixed_severities || []).some(s => s === 'blocker' || s === 'major')
     if (!serious) return r
-    const again = await review(u, r.fin, ['conformance', 'breaker'], 'Re-review')
-    const open = again.flatMap(x => x.findings).filter(f => f.reproduced && (f.severity === 'blocker' || f.severity === 'major'))
-    if (!open.length) return { ...r, rereview: again }
+    const { reviews: again, missing } = await review(u, r.fin, ['conformance', 'breaker'], 'Re-review')
+    if (missing.length) return { ...r, rereview: again, review_incomplete: true, needs_attention: true }
+    const open = again.flatMap(x => x.findings).filter(f => f.severity === 'blocker' || f.severity === 'major')
+    if (!open.length && !again.some(x => unproven(x.done_when).length)) return { ...r, rereview: again }
     const fin2 = await agent(fixPrompt(u, r.fin, again), { label: `fix2:${u.key}`, phase: 'Re-review', schema: IMPL })
-    return { ...r, rereview: again, fin: fin2 || r.fin, needs_attention: !fin2 }
+    return { ...r, rereview: again, open_findings: open, fin: fin2 || r.fin, needs_attention: !fin2 }
   },
   (r, u) => r.skipped || !r.fin ? r
     : agent(prPrompt(u, r.fin), { label: `pr:${u.key}`, phase: 'PR text', effort: 'medium' }).then(pr => ({ ...r, pr })),
@@ -140,13 +153,16 @@ const results = await pipeline(
 
 return results.map((r, i) => r && {
   unit: UNITS[i].key,
-  status: r.skipped ? (r.impl ? r.impl.status : 'failed') : (r.fin ? r.fin.status : 'failed'),
-  needs_attention: !!r.needs_attention,
+  status: r.review_incomplete ? 'review_incomplete' : r.skipped ? (r.impl ? r.impl.status : 'failed') : (r.fin ? r.fin.status : 'failed'),
+  needs_attention: !!r.needs_attention || unproven((r.fin || r.impl || {}).done_when).length > 0,
+  missing_reviews: r.missing || [],
   implemented: !!UNITS[i].implemented,
   fix_skipped: !!r.fix_skipped,
   done_when: (r.fin || r.impl || {}).done_when,
   declined: (r.fin || {}).declined,
   questions: (r.fin || r.impl || {}).questions,
-  review_verdicts: (r.reviews || []).map(x => x.verdict),
+  review_verdicts: (r.reviews || []).map(x => `${x.lens}:${x.verdict}`),
+  rereview_verdicts: (r.rereview || []).map(x => `${x.lens}:${x.verdict}`),
+  open_findings: r.open_findings || [],
   pr_body: r.pr ? `${LOOP}/units/${UNITS[i].key}/PR-BODY.md` : null,
 })

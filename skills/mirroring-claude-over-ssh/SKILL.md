@@ -11,10 +11,11 @@ logins are the user's to do.
 ## 1. Mirror (from the Mac)
 
 ```bash
-bash ~/.claude/skills/mirroring-claude-over-ssh/scripts/mirror-claude.sh <ssh-host>   # ~30 s, safe to re-run
+bash "<dir of this SKILL.md>/scripts/mirror-claude.sh" <ssh-host>   # ~30 s, safe to re-run
 ```
 
-It checks the host first and stops with what's missing. The host needs Linux on x86_64 or aarch64, `bash`, `curl`,
+Run it from wherever this skill is installed (`~/.claude/skills/mirroring-claude-over-ssh` or the plugin cache), not from a
+hard-coded path. It checks the host first and stops with what's missing. The host needs Linux on x86_64 or aarch64, `bash`, `curl`,
 `tar` and `python3`, and key-based ssh (it runs with `BatchMode`); `git` 2.36 or newer is needed for `gh stack` and
 it prints a note if `git` is missing. No sudo.
 
@@ -28,7 +29,9 @@ the name in its `marketplace.json`, which can differ from the local name it was 
 plugin ids to match.
 
 Not copied: `.credentials.json`, `~/.claude.json` (MCP servers and OAuth tokens), history, memory (keyed by the
-Mac's paths).
+Mac's paths). Both settings files go through a filter that drops `apiKeyHelper` and the other credential helpers and
+every `env` entry whose name contains key, token, secret, password, credential or auth, and it prints what it dropped.
+The upload lands in a private `mktemp -d` directory on the host, which the setup script removes at the end.
 
 ## 2. Logins: the user runs these
 

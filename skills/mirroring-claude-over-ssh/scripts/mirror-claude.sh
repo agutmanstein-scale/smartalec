@@ -28,36 +28,20 @@ b=$work/claude-mirror
 mkdir -p "$b/marketplaces"
 
 present=()
-for f in CLAUDE.md RTK.md settings.local.json skills; do [ -e "$C/$f" ] && present+=("$f"); done
+for f in CLAUDE.md RTK.md skills; do [ -e "$C/$f" ] && present+=("$f"); done
 (cd "$C" && COPYFILE_DISABLE=1 tar --exclude=.DS_Store -czf "$b/claude.tgz" "${present[@]}")
 [ -f "$HOME/AGENTS.md" ] && cp "$HOME/AGENTS.md" "$b/AGENTS.md"
-cp "$C/settings.json" "$b/settings.mac.json"
+# Settings go through a filter that drops API keys, tokens and credential helpers.
+python3 "$here/scrub_settings.py" "$C/settings.json" "$b/settings.mac.json"
+[ -f "$C/settings.local.json" ] && python3 "$here/scrub_settings.py" "$C/settings.local.json" "$b/settings.local.json"
 
 # The box clones claude-plugins-official itself; every other marketplace (private ones included) is copied from the
 # local checkout, and is registered under the name its marketplace.json declares, which can differ from the local key.
-python3 - "$C/plugins" "$b" <<'EOF'
-import json, os, subprocess, sys
-plugins, b = sys.argv[1], sys.argv[2]
-known = json.load(open(os.path.join(plugins, "known_marketplaces.json")))
-renames = {}
-for key, m in known.items():
-    if key == "claude-plugins-official":
-        continue
-    loc = m.get("installLocation") or os.path.join(plugins, "marketplaces", key)
-    name = json.load(open(os.path.join(loc, ".claude-plugin", "marketplace.json"))).get("name", key)
-    renames[key] = name
-    subprocess.run(["tar", "--exclude=.git", "--exclude=.DS_Store", "-czf",
-                    os.path.join(b, "marketplaces", f"{key}.tgz"), "-C", os.path.dirname(loc), os.path.basename(loc)],
-                   check=True, env={**os.environ, "COPYFILE_DISABLE": "1"})
-json.dump(renames, open(os.path.join(b, "renames.json"), "w"))
-ids = json.load(open(os.path.join(plugins, "installed_plugins.json")))["plugins"]
-with open(os.path.join(b, "plugins.txt"), "w") as fh:
-    for pid in sorted(ids):
-        name, _, market = pid.rpartition("@")
-        fh.write(f"{name}@{renames.get(market, market)}\n")
-EOF
-cp "$here/remote-setup.sh" "$b/remote-setup.sh"
+python3 "$here/bundle_marketplaces.py" "$C/plugins" "$b"
+cp "$here/remote-setup.sh" "$here/merge_settings.py" "$b/"
 
-ssh -o BatchMode=yes "$host" 'rm -rf /tmp/claude-mirror' 2>&1 | quiet
-scp -q -r -o BatchMode=yes "$b" "$host:/tmp/" 2>&1 | quiet
-ssh -o BatchMode=yes "$host" 'bash /tmp/claude-mirror/remote-setup.sh' 2>&1 | quiet
+# A private directory on the host, so nobody else can plant files where the setup script runs.
+rd=$(ssh -o BatchMode=yes "$host" 'mktemp -d' 2>&1 | quiet | tail -1)
+case $rd in /*) ;; *) echo "can't make a private directory on $host: $rd" >&2; exit 1 ;; esac
+scp -q -r -o BatchMode=yes "$b/." "$host:$rd/" 2>&1 | quiet
+ssh -o BatchMode=yes "$host" "bash '$rd/remote-setup.sh' '$rd'" 2>&1 | quiet
