@@ -9,8 +9,12 @@ import subprocess
 import sys
 
 
+def load(path, default):
+    return json.load(open(path)) if os.path.exists(path) else default
+
+
 def bundle(plugins, out):
-    known = json.load(open(os.path.join(plugins, "known_marketplaces.json")))
+    known = load(os.path.join(plugins, "known_marketplaces.json"), {})
     os.makedirs(os.path.join(out, "marketplaces"), exist_ok=True)
     renames = {}
     for key, m in known.items():
@@ -23,7 +27,7 @@ def bundle(plugins, out):
                         os.path.join(out, "marketplaces", f"{key}.tgz"), "-C", os.path.dirname(loc), os.path.basename(loc)],
                        check=True, env={**os.environ, "COPYFILE_DISABLE": "1"})
     json.dump(renames, open(os.path.join(out, "renames.json"), "w"))
-    ids = json.load(open(os.path.join(plugins, "installed_plugins.json")))["plugins"]
+    ids = load(os.path.join(plugins, "installed_plugins.json"), {}).get("plugins", {})
     with open(os.path.join(out, "plugins.txt"), "w") as fh:
         for pid in sorted(ids):
             name, _, market = pid.rpartition("@")

@@ -96,3 +96,31 @@ def test_mirror_stops_before_uploading_when_the_host_lacks_a_requirement(tmp_pat
     assert result.returncode == 1
     assert "python3" in result.stderr
     assert "scp" not in log.read_text()
+
+
+def test_mirror_works_for_a_plugin_only_setup_with_no_instructions_or_skills(tmp_path):
+    env, remote, _ = setup(tmp_path)
+    claude = Path(env["HOME"]) / ".claude"
+    (claude / "CLAUDE.md").unlink()
+    subprocess.run(["rm", "-rf", str(claude / "skills")], check=True)
+
+    result = run(env)
+
+    assert result.returncode == 0, result.stderr
+    assert not (remote / "claude.tgz").exists()
+    assert (remote / "plugins.txt").exists()
+
+
+def test_remote_setup_decides_rtk_from_either_settings_file(tmp_path):
+    line = next(l for l in (SCRIPT.parent / "remote-setup.sh").read_text().splitlines() if l.startswith("needs_rtk="))
+    b = tmp_path / "up"
+    b.mkdir()
+    (b / "settings.mac.json").write_text("{}")
+    (b / "settings.local.json").write_text('{"hooks": {"x": "rtk hook claude"}}'.replace("rtk hook", '"rtk hook'))
+
+    out = subprocess.run(["bash", "-c", f'B={b}; {line}; echo $needs_rtk'], capture_output=True, text=True).stdout.strip()
+
+    assert out == "yes"
+    (b / "settings.local.json").unlink()
+    out = subprocess.run(["bash", "-c", f'B={b}; {line}; echo $needs_rtk'], capture_output=True, text=True).stdout.strip()
+    assert out == "no"

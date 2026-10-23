@@ -45,3 +45,14 @@ def test_bundle_rewrites_plugin_ids_when_the_declared_name_differs_from_the_loca
 
     assert (out / "plugins.txt").read_text().strip() == "handoff@scale-ai"
     assert (out / "marketplaces" / "scale-ai-agents.tgz").exists()
+
+
+def test_bundle_treats_missing_registries_as_empty(tmp_path):
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    out = tmp_path / "out"
+
+    bundle_marketplaces.bundle(str(plugins), str(out))
+
+    assert json.loads((out / "renames.json").read_text()) == {}
+    assert (out / "plugins.txt").read_text() == ""

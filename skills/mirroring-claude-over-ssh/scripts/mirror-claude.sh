@@ -29,7 +29,7 @@ mkdir -p "$b/marketplaces"
 
 present=()
 for f in CLAUDE.md RTK.md skills; do [ -e "$C/$f" ] && present+=("$f"); done
-(cd "$C" && COPYFILE_DISABLE=1 tar --exclude=.DS_Store -czf "$b/claude.tgz" "${present[@]}")
+[ ${#present[@]} -gt 0 ] && (cd "$C" && COPYFILE_DISABLE=1 tar --exclude=.DS_Store -czf "$b/claude.tgz" "${present[@]}")
 [ -f "$HOME/AGENTS.md" ] && cp "$HOME/AGENTS.md" "$b/AGENTS.md"
 # Settings go through a filter that drops API keys, tokens and credential helpers.
 python3 "$here/scrub_settings.py" "$C/settings.json" "$b/settings.mac.json"

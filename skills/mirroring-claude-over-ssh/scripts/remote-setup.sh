@@ -6,7 +6,7 @@ export PATH=$HOME/.local/bin:$PATH
 mkdir -p ~/.local/bin ~/.claude ~/plugin-marketplaces
 
 # A settings hook that runs `rtk hook claude` on every Bash call needs rtk on the host before the settings land.
-needs_rtk=$(grep -q '"rtk hook' "$B/settings.mac.json" && echo yes || echo no)
+needs_rtk=$(cat "$B"/settings.mac.json "$B"/settings.local.json 2>/dev/null | grep -q '"rtk hook' && echo yes || echo no)
 if [ "$needs_rtk" = yes ] && ! command -v rtk >/dev/null; then
   case $(uname -m) in
     x86_64) asset=rtk-x86_64-unknown-linux-musl.tar.gz ;;
@@ -42,7 +42,7 @@ if [ ! -x "$ext/gh-stack" ]; then
   printf 'owner: github\nname: gh-stack\nhost: github.com\ntag: %s\nispinned: false\npath: %s\n' "$tag" "$ext/gh-stack" > "$ext/manifest.yml"
 fi
 
-tar xzf "$B/claude.tgz" -C ~/.claude
+[ -f "$B/claude.tgz" ] && tar xzf "$B/claude.tgz" -C ~/.claude
 [ -f "$B/AGENTS.md" ] && cp "$B/AGENTS.md" ~/AGENTS.md
 
 for t in "$B"/marketplaces/*.tgz; do
